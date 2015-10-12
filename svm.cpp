@@ -8,6 +8,11 @@
 #include <limits.h>
 #include <locale.h>
 #include "svm.h"
+
+#ifdef CV_OMP
+#include <omp.h>
+#endif
+
 int libsvm_version = LIBSVM_VERSION;
 typedef float Qfloat;
 typedef signed char schar;
@@ -2412,6 +2417,9 @@ void svm_cross_validation(const svm_problem *prob, const svm_parameter *param, i
 			fold_start[i]=i*l/nr_fold;
 	}
 
+#ifdef CV_OMP
+#pragma omp parallel for private(i) schedule(dynamic)
+#endif
 	for(i=0;i<nr_fold;i++)
 	{
 		int begin = fold_start[i];
