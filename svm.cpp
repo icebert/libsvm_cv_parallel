@@ -67,11 +67,7 @@ static void info(const char *fmt,...) {}
 
 static inline int rand_int(const int max)
 {
-#ifdef CV_OMP
 	static int seed = omp_get_thread_num();
-#else
-    static int seed = 0;
-#endif
 
 #pragma omp threadprivate(seed)
 	seed = ((seed * 1103515245) + 12345) & 0x7fffffff;
@@ -2435,7 +2431,7 @@ void svm_cross_validation(const svm_problem *prob, const svm_parameter *param, i
 	}
 
 #ifdef CV_OMP
-#pragma omp parallel for private(i) schedule(dynamic)
+#pragma omp parallel for private(i) schedule(static)
 #endif
 	for(i=0;i<nr_fold;i++)
 	{
