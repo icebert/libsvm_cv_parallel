@@ -335,9 +335,13 @@ if rank_id == 0:
         for i in range(1, total_mpi):
             comm.send(options.__dict__, dest=i, tag=0)
         
-        (cexp0, gexp0) = job_queue.get()
+        njobs_per_mpi = job_queue.qsize() / total_mpi
         
-        # Dispatch the jobs
+        job_queue0 = Queue(0)
+        for i in range(0, njobs_per_mpi):
+            job_queue0.put(job_queue.get())
+        
+        # Dispatch the remained jobs
         id = 0
         rnd = [0] * total_mpi
         while not job_queue.empty():
@@ -351,10 +355,11 @@ if rank_id == 0:
         for i in range(1, total_mpi):
             comm.isend((None, None), dest=i, tag=(rnd[i]+1))
         
-        
-        worker = Worker(options.__dict__, cexp0, gexp0)
-        (cexp, gexp, rate) = worker.run()
-        result_queue.put(('0', cexp, gexp, rate))
+        while not job_queue0.empty():
+            (cexp0, gexp0) = job_queue0.get()
+            worker = Worker(options.__dict__, cexp0, gexp0)
+            (cexp, gexp, rate) = worker.run()
+            result_queue.put(('0', cexp, gexp, rate))
         
         for id in range(1, total_mpi):
             for i in range(1, rnd[id]+1):
