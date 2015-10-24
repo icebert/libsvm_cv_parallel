@@ -22,6 +22,13 @@ struct svm_problem
 	struct svm_node **x;
 };
 
+struct grid_cg
+{
+    int l;
+    double *c;
+    double *g;
+};
+
 enum { C_SVC, NU_SVC, ONE_CLASS, EPSILON_SVR, NU_SVR };	/* svm_type */
 enum { LINEAR, POLY, RBF, SIGMOID, PRECOMPUTED }; /* kernel_type */
 
@@ -73,6 +80,7 @@ struct svm_model
 
 struct svm_model *svm_train(const struct svm_problem *prob, const struct svm_parameter *param);
 void svm_cross_validation(const struct svm_problem *prob, const struct svm_parameter *param, int nr_fold, double *target);
+void svm_grid_search(const struct svm_problem *prob, const struct svm_parameter *param, const struct grid_cg *grid, int nr_fold, double *target);
 
 int svm_save_model(const char *model_file_name, const struct svm_model *model);
 struct svm_model *svm_load_model(const char *model_file_name);

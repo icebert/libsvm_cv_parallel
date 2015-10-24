@@ -2478,6 +2478,30 @@ void svm_cross_validation(const svm_problem *prob, const svm_parameter *param, i
 }
 
 
+
+// Grid search of cost and gamma
+void svm_grid_search(const struct svm_problem *prob, const struct svm_parameter *param, const struct grid_cg *grid, int nr_fold, double *target)
+{
+    int i;
+    
+    struct svm_parameter *params = Malloc(struct svm_parameter, grid->l);
+    for (i=0; i<grid->l; i++)
+    {
+        params[i] = *param;
+        params[i].C = grid->c[i];
+        params[i].gamma = grid->g[i];
+    }
+    
+    for (i=0; i<grid->l; i++)
+    {
+        svm_cross_validation(prob, &(params[i]), nr_fold, target+i*prob->l);
+    }
+    
+    free(params);
+}
+
+
+
 int svm_get_svm_type(const svm_model *model)
 {
 	return model->param.svm_type;

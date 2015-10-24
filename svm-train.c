@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <math.h>
 #include <string.h>
 #include <ctype.h>
 #include <errno.h>
@@ -37,6 +38,8 @@ void exit_with_help()
 	"-b probability_estimates : whether to train a SVC or SVR model for probability estimates, 0 or 1 (default 0)\n"
 	"-wi weight : set the parameter C of class i to weight*C, for C-SVC (default 1)\n"
 	"-v n: n-fold cross validation mode\n"
+    "-C find best cost\n"
+    "-G find best gamma\n"
 	"-q : quiet mode (no outputs)\n"
 	);
 	exit(1);
@@ -51,12 +54,15 @@ void exit_input_error(int line_num)
 void parse_command_line(int argc, char **argv, char *input_file_name, char *model_file_name);
 void read_problem(const char *filename);
 void do_cross_validation();
+void find_param_c_g();
 
 struct svm_parameter param;		// set by parse_command_line
 struct svm_problem prob;		// set by read_problem
 struct svm_model *model;
 struct svm_node *x_space;
 int cross_validation;
+int find_c;
+int find_g;
 int nr_fold;
 
 static char *line = NULL;
@@ -96,7 +102,11 @@ int main(int argc, char **argv)
 		exit(1);
 	}
 
-	if(cross_validation)
+    if (find_c || find_g)
+    {
+        find_param_c_g();
+    }
+    else if(cross_validation)
 	{
 		do_cross_validation();
 	}
@@ -157,6 +167,181 @@ void do_cross_validation()
 	}
 	free(target);
 }
+
+
+
+void permute_sequence(double *seq, int left, int right, double *res)
+{
+    if (right - left < 1)
+        return;
+    if (right - left == 1)
+    {
+        res[0] = seq[left];
+        return;
+    }
+    
+    int mid = (left + right) / 2;
+    int llen = mid - left;
+    int rlen = right - mid -1;
+    
+    double *left_seq = NULL;
+    double *right_seq = NULL;
+    if (llen > 0) left_seq = Malloc(double, llen);
+    if (rlen > 0) right_seq = Malloc(double, rlen);
+    
+    permute_sequence(seq, left, mid, left_seq);
+    permute_sequence(seq, mid+1, right, right_seq);
+    
+    int cnt=0, i=0, j=0;
+    res[cnt++] = seq[mid];
+    while(i<llen || j<rlen)
+    {
+        if (i<llen) res[cnt++] = left_seq[i++];
+        if (j<rlen) res[cnt++] = right_seq[j++];
+    }
+    
+    if (left_seq != NULL) free(left_seq);
+    if (right_seq != NULL) free(right_seq);
+}
+
+void find_param_c_g()
+{
+    struct grid_cg grid;
+    double *target;
+    
+    double c_begin = param.C;
+    double c_end = param.C;
+    double c_step = 1;
+    double c;
+    double *c_seq, *c_seq_p;
+    int c_len = 0;
+    
+    double g_begin = param.gamma;
+    double g_end = param.gamma;
+    double g_step = -1;
+    double g;
+    double *g_seq, *g_seq_p;
+    int g_len = 0;
+    
+    if (find_c)
+    {
+        c_begin = -5;
+        c_end = 15;
+        c_step = 2;
+    }
+    
+    if (find_g)
+    {
+        g_begin = 3;
+        g_end = -15;
+        g_step = -2;
+    }
+    
+    c_seq   = Malloc(double, int((c_end-c_begin)/c_step)+1);
+    c_seq_p = Malloc(double, int((c_end-c_begin)/c_step)+1);
+    g_seq   = Malloc(double, int((g_end-g_begin)/g_step)+1);
+    g_seq_p = Malloc(double, int((g_end-g_begin)/g_step)+1);
+    
+    for (c=c_begin; c<=c_end; c+=c_step)
+        c_seq[c_len++] = c;
+    for (g=g_begin; g>=g_end; g+=g_step)
+        g_seq[g_len++] = g;
+    
+    permute_sequence(c_seq, 0, c_len, c_seq_p);
+    permute_sequence(g_seq, 0, g_len, g_seq_p);
+    
+    grid.l = 0;
+    grid.c = Malloc(double, c_len*g_len);
+    grid.g = Malloc(double, c_len*g_len);
+    
+    int i=0, j=0, k;
+    while (i < c_len || j < g_len)
+        if (1.0*i/c_len < 1.0*j/g_len)
+        {
+            // Increase c resolution
+            for (k=0; k<j; k++)
+            {
+                grid.c[grid.l] = c_seq_p[i];
+                grid.g[grid.l] = g_seq_p[k];
+                grid.l++;
+            }
+            i++;
+        }
+        else
+        {
+            // Increase g resolution
+            for (k=0; k<i; k++)
+            {
+                grid.c[grid.l] = c_seq_p[k];
+                grid.g[grid.l] = g_seq_p[j];
+                grid.l++;
+            }
+            j++;
+        }
+    
+    for (k=0; k<grid.l; k++)
+    {
+        if (find_c) grid.c[k] = pow(2, grid.c[k]);
+        if (find_g) grid.g[k] = pow(2, grid.g[k]);
+    }
+    
+    if (nr_fold == 0) nr_fold = 5;
+    target = Malloc(double, grid.l * prob.l);
+    
+    svm_grid_search(&prob, &param, &grid, nr_fold, target);
+    
+    double accu;
+    double best_accu = 0;
+    double best_c=param.C, best_g=param.gamma;
+    for (k=0; k<grid.l; k++)
+    {
+        if (find_c) printf("%f\t", log2(grid.c[k]));
+        if (find_g) printf("%f\t", log2(grid.g[k]));
+        
+        if(param.svm_type == EPSILON_SVR ||
+           param.svm_type == NU_SVR)
+        {
+            double total_error = 0;
+            for(i=0;i<prob.l;i++)
+            {
+                double y = prob.y[i];
+                double v = target[k*prob.l + i];
+                total_error += (v-y)*(v-y);
+            }
+            accu = total_error/prob.l;
+        }
+        else
+        {
+            int total_correct = 0;
+            for(i=0;i<prob.l;i++)
+                if(target[k*prob.l + i] == prob.y[i])
+                    ++total_correct;
+            accu = 100.0*total_correct/prob.l;
+        }
+        
+        printf("%f\n", accu);
+        
+        if (accu > best_accu)
+        {
+            best_accu = accu;
+            best_c = grid.c[k];
+            best_g = grid.g[k];
+        }
+    }
+    printf("Best\t");
+    if (find_c) printf("cost: %f\t", best_c);
+    if (find_g) printf("gamma: %f\t", best_g);
+    printf("accuracy: %f\n", best_accu);
+    
+    free(c_seq);
+    free(c_seq_p);
+    free(g_seq);
+    free(g_seq_p);
+    free(grid.c);
+    free(grid.g);
+    free(target);
+}
+
 
 void parse_command_line(int argc, char **argv, char *input_file_name, char *model_file_name)
 {
@@ -238,6 +423,14 @@ void parse_command_line(int argc, char **argv, char *input_file_name, char *mode
 					exit_with_help();
 				}
 				break;
+            case 'C':
+                find_c = 1;
+                i--;
+                break;
+            case 'G':
+                find_g = 1;
+                i--;
+                break;
 			case 'w':
 				++param.nr_weight;
 				param.weight_label = (int *)realloc(param.weight_label,sizeof(int)*param.nr_weight);
