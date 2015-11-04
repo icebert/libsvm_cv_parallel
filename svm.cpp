@@ -1924,6 +1924,10 @@ static void svm_binary_svc_probability(
 		int j = i+rand_int(prob->l-i);
 		swap(perm[i],perm[j]);
 	}
+
+#ifdef CV_OMP
+#pragma omp parallel for private(i) schedule(static)
+#endif
 	for(i=0;i<nr_fold;i++)
 	{
 		int begin = i*prob->l/nr_fold;
